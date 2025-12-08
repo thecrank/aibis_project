@@ -214,7 +214,7 @@ with tab2:
         feature_df.columns = ['Duration (months)', 'Credit Amount', 'Age (years)', 'Installment Rate (%)', 
                              'Residence Since', 'Existing Credits', 'People Liable', 'Cluster']
         
-        t1, t2, t3, t4, t5 = st.tabs(["2D Cluster Map", "3D Cluster Map", "Segment Distribution", "Cluster Meaning (SHAP)", "Feature Analysis"])
+        t1, t2, t3, t4 = st.tabs(["2D Cluster Map", "3D Cluster Map", "Segment Distribution", "Cluster Meaning (SHAP)"])
         
         with t1:
             st.subheader("Customer Segments Map (2D)")
@@ -393,54 +393,128 @@ with tab2:
             
         with t4:
             st.subheader("What defines the clusters?")
-            st.markdown("Global SHAP analysis for the selected cluster.")
+            st.markdown("SHAP Summary Plot - showing feature impact distribution for the selected cluster.")
             
             # WICHTIG: Sicherstellen, dass Cluster als int vorliegen für die Auswahl
             unique_clusters = sorted(plot_df['Cluster'].unique())
             cluster_id_view = st.selectbox("Select Cluster to Analyze:", unique_clusters)
             
-            # Interactive SHAP plot
+            # Get SHAP values for selected cluster
             if isinstance(shap_values_global, list):
                 sv_plot = shap_values_global[cluster_id_view]
             else:
                 sv_plot = shap_values_global[:, :, cluster_id_view]
             
-            # Calculate mean absolute SHAP values for this cluster
-            shap_importance_cluster = np.abs(sv_plot).mean(axis=0)
+            # Create interactive SHAP summary plot
+            st.markdown("**Interactive SHAP Summary Plot** - Each dot represents a customer")
             
-            # Sort by importance
-            indices_cluster = np.argsort(shap_importance_cluster)[::-1][:15]
+            # Use the feature_names already defined above (line 210-211)
+            # and get the actual feature values from X_full
+            n_samples = len(plot_df)
+            feature_values = X_full[feature_names].iloc[:n_samples].values
             
-            # Get feature names - raw_features should be a DataFrame
-            if isinstance(raw_features, pd.DataFrame):
-                feature_names_cluster = [raw_features.columns[i] for i in indices_cluster]
-            else:
-                # Fallback: try to get column names or use generic names
-                feature_names_cluster = [f'Feature_{i}' for i in indices_cluster]
+            # Now feature_values should be 2D with shape (n_samples, 7)
+            # Calculate mean absolute SHAP values for sorting
+            shap_importance = np.abs(sv_plot).mean(axis=0)
+            top_indices = np.argsort(shap_importance)[::-1][:15]
             
-            fig_shap_cluster = go.Figure(go.Bar(
-                x=shap_importance_cluster[indices_cluster],
-                y=feature_names_cluster,
-                orientation='h',
-                marker=dict(
-                    color=shap_importance_cluster[indices_cluster],
-                    colorscale=[[0, '#00d2ff'], [0.3, '#3a7bd5'], [0.6, '#6a3093'], [0.85, '#a044ff'], [1, '#ff6bcb']],
-                    showscale=True,
-                    colorbar=dict(title="Importance"),
-                    line=dict(color='rgba(255,255,255,0.2)', width=1)
+            # Create interactive beeswarm plot
+            fig_shap = go.Figure()
+            
+            for i, feat_idx in enumerate(top_indices):
+                feat_name = feature_names[feat_idx]
+                shap_vals = sv_plot[:, feat_idx]
+                feat_vals = feature_values[:, feat_idx]
+                
+                # Normalize feature values for color (0-1)
+                if feat_vals.max() != feat_vals.min():
+                    feat_vals_norm = (feat_vals - feat_vals.min()) / (feat_vals.max() - feat_vals.min())
+                else:
+                    feat_vals_norm = np.zeros_like(feat_vals)
+                
+                # Add jitter for beeswarm effect
+                np.random.seed(42 + i)  # Different seed per feature for consistency
+                y_jitter = np.random.normal(0, 0.12, len(shap_vals))
+                y_positions = np.full(len(shap_vals), i) + y_jitter
+                
+                # Add scatter trace
+                fig_shap.add_trace(go.Scatter(
+                    x=shap_vals,
+                    y=y_positions,
+                    mode='markers',
+                    marker=dict(
+                        size=5,
+                        color=feat_vals_norm,
+                        colorscale='RdBu_r',  # Red=High, Blue=Low (reversed)
+                        showscale=(i == 0),  # Show colorbar only once
+                        colorbar=dict(
+                            title=dict(
+                                text="Feature<br>Value",
+                                side="right"
+                            ),
+                            tickmode="array",
+                            tickvals=[0, 1],
+                            ticktext=["Low", "High"],
+                            len=0.6,
+                            y=0.5,
+                            x=1.02
+                        ),
+                        cmin=0,
+                        cmax=1,
+                        line=dict(width=0.5, color='rgba(255,255,255,0.4)'),
+                        opacity=0.8
+                    ),
+                    hovertemplate=(
+                        f'<b>{feat_name}</b><br>' +
+                        'SHAP: %{x:.4f}<br>' +
+                        'Value: %{customdata:.2f}<br>' +
+                        '<extra></extra>'
+                    ),
+                    customdata=feat_vals,
+                    showlegend=False,
+                    name=feat_name
+                ))
+            
+            # Update layout
+            fig_shap.update_layout(
+                xaxis=dict(
+                    title='SHAP Value (impact on cluster assignment)',
+                    zeroline=True,
+                    zerolinewidth=2,
+                    zerolinecolor='rgba(255,255,255,0.3)',
+                    gridcolor='rgba(255,255,255,0.1)',
+                    color='white'
                 ),
-                hovertemplate='%{y}<br>Importance: %{x:.4f}<extra></extra>'
-            ))
-            
-            fig_shap_cluster.update_layout(
-                xaxis_title='Mean |SHAP Value|',
-                yaxis_title='Feature',
-                height=500,
-                margin=dict(l=20, r=20, t=20, b=20),
-                yaxis=dict(autorange="reversed")
+                yaxis=dict(
+                    title='',
+                    tickmode='array',
+                    tickvals=list(range(len(top_indices))),
+                    ticktext=[feature_names[i] for i in top_indices],
+                    autorange='reversed',
+                    color='white'
+                ),
+                height=600,
+                margin=dict(l=180, r=80, t=20, b=60),
+                hovermode='closest',
+                plot_bgcolor='rgba(20,20,30,0.95)',
+                paper_bgcolor='rgba(15,15,25,1)',
+                font=dict(color='white')
             )
             
-            st.plotly_chart(fig_shap_cluster, use_container_width=True)
+            st.plotly_chart(fig_shap, use_container_width=True)
+            
+            # Add explanation
+            st.info("""
+            **How to read this plot:**
+            - Each dot represents one customer
+            - **X-axis**: SHAP value (positive = pushes toward this cluster, negative = pushes away)
+            - **Color**: Feature value (Red = High, Blue = Low)
+            - **Position**: Features ranked by importance (top = most important)
+            - **Hover** over dots to see exact values
+            
+            **Example**: If you see red dots on the right for "credit_amount", it means high credit amounts 
+            strongly push customers into this cluster.
+            """)
 
 # ==========================================
 # PAGE 3: LOAN OFFICER INTERFACE
