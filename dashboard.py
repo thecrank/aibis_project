@@ -242,8 +242,8 @@ with tab2:
             st.info("""
             **Interpretation:**
             * **Cluster 0:** Standard Customers
-            * **Cluster 1:** High Value / Investors
-            * **Cluster 2:** Savers (Conservative)
+            * **Cluster 1:** Savers (Conservative)
+            * **Cluster 2:** High Value / Investors
             """)
         
         with t2:
