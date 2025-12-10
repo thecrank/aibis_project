@@ -386,7 +386,7 @@ with tab2:
                 'Segment': [f'Cluster {i}' for i in cluster_counts.index],
                 'Customer Count': cluster_counts.values,
                 'Percentage': [f"{pct}%" for pct in cluster_percentages.values],
-                'Description': ['Standard Customers', 'High Value / Investors', 'Savers (Conservative)'][:len(cluster_counts)]
+                'Description': ['Standard Customers', 'Savers (Conservative)', 'High Value / Investors'][:len(cluster_counts)]
             })
             
             st.dataframe(detailed_df, use_container_width=True, hide_index=True)
